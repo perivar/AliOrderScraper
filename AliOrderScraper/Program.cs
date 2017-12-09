@@ -4,6 +4,8 @@ using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
 using OpenQA.Selenium.Support.UI;
 using Jitbit.Utils;
+using System.IO;
+using System.Text;
 
 namespace AliOrderScraper
 {
@@ -11,10 +13,10 @@ namespace AliOrderScraper
     {
         static void Main(string[] args)
         {
-            ScrapeAliExpressOrders();
+            ScrapeAliExpressOrders("", "AliExpressOrders");
         }
 
-        static void ScrapeAliExpressOrders()
+        static void ScrapeAliExpressOrders(string path, string fileNamePrefix)
         {
             // http://blog.hanxiaogang.com/2017-07-29-aliexpress/
             ChromeOptions options = new ChromeOptions();
@@ -51,7 +53,10 @@ namespace AliOrderScraper
                     Console.WriteLine("Successfully Scraped Order Page {0}", i);
                 }
             }
-            myExport.ExportToFile(@"AliExpressOrders.csv");
+
+            // set export filename
+            string exportFilePath = Path.Combine(path, string.Format("{0}-{1:yyyy-MM-dd_HH-mm}.csv", fileNamePrefix, DateTime.Now));
+            myExport.ExportToFile(exportFilePath, true);
         }
 
         static bool ScrapeAliExpressOrderPage(CsvExport myExport, IWebDriver driver, int curPage)
@@ -105,8 +110,16 @@ namespace AliOrderScraper
                 var orderLines = orderEntry.FindElements(By.XPath("tr[@class='order-body']"));
 
                 int orderLineCount = 1;
-                foreach (var orderLine in orderLines)
-                {
+                bool first = true;
+                var builder = new StringBuilder(); // initially empty
+                foreach (var orderLine in orderLines) {
+                    // append newline after each line
+                    if (first) {
+                        first = false;
+                    } else {
+                        builder.Append("\n"); 
+                    }
+
                     var productTitleElement = orderLine.FindElement(By.XPath("td[@class='product-sets']/div[@class='product-right']/p[@class='product-title']/a")); ;
                     var productId = productTitleElement.GetAttribute("productId");
                     var productTitle = productTitleElement.Text;
@@ -114,8 +127,11 @@ namespace AliOrderScraper
                     var productAmount = orderLine.FindElement(By.XPath("td[@class='product-sets']/div[@class='product-right']/p[@class='product-amount']")).Text;
                     var productProperty = orderLine.FindElement(By.XPath("td[@class='product-sets']/div[@class='product-right']/p[@class='product-property']")).Text;
 
-                    Console.WriteLine("{0}. [{1}] {2}\n{3} {4}", orderLineCount++, productId, productTitle, productProperty, productAmount);
+                    Console.WriteLine("{0}. [{1}] {2}\n{3} {4}", orderLineCount, productId, productTitle, productProperty, productAmount);
+                    builder.AppendFormat("{0}. [{1}] {2}\n{3} {4}", orderLineCount, productId, productTitle, productProperty, productAmount);
+                    orderLineCount++;
                 }
+                myExport["OrderLines"] = builder.ToString();
 
                 // read order contact information (buyer)
                 GetAliExpressContactFromOrder(myExport, driver, orderId);

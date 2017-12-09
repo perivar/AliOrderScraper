@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
 using OpenQA.Selenium.Support.UI;
-using System.Linq;
+using Jitbit.Utils;
 
 namespace AliOrderScraper
 {
@@ -11,21 +11,10 @@ namespace AliOrderScraper
     {
         static void Main(string[] args)
         {
-            //OpenGoogleMail();
-            OpenAliExpress();
+            ScrapeAliExpressOrders();
         }
 
-        static void OpenGoogleMail()
-        {
-            // http://grokbase.com/t/gg/selenium-users/14btqzh6r0/how-to-start-chromedriver-with-existing-login
-            ChromeOptions options = new ChromeOptions();
-            options.AddArguments("user-data-dir=C:/Users/pnerseth/AppData/Local/Google/Chrome/User Data/Default");
-            options.AddArguments("--start-maximized");
-            IWebDriver driver = new ChromeDriver(options);
-            driver.Navigate().GoToUrl("https://mail.google.com");
-        }
-
-        static void OpenAliExpress()
+        static void ScrapeAliExpressOrders()
         {
             // http://blog.hanxiaogang.com/2017-07-29-aliexpress/
             ChromeOptions options = new ChromeOptions();
@@ -34,9 +23,18 @@ namespace AliOrderScraper
             IWebDriver driver = new ChromeDriver(options);
             driver.Navigate().GoToUrl("https://login.aliexpress.com");
 
-            var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(30));
-            wait.Until(ExpectedConditions.UrlToBe("https://www.aliexpress.com/"));
+            try
+            {
+                var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(30));
+                wait.Until(ExpectedConditions.UrlToBe("https://www.aliexpress.com/"));
+            }
+            catch (WebDriverTimeoutException)
+            {
+                Console.WriteLine("Timeout - Logged in to AliExpress to late. Stopping.");
+                return;
+            }
 
+            // go to order list
             driver.Navigate().GoToUrl("https://trade.aliexpress.com/orderList.htm");
 
             // identify how many pages on order page (1/20)
@@ -45,14 +43,18 @@ namespace AliOrderScraper
             int numPages = tuple.Item2;
             Console.WriteLine("Found {0} Pages", numPages);
 
-            // scrape one and one page
-            if (ScrapeAliExpressOrderPage(driver, 10))
-            {
-                Console.WriteLine("Success!");
+            // scrape one and one page and store in csv writer object
+            var myExport = new CsvExport();
+            for (int i = 1; i <= numPages; i++) {
+                if (ScrapeAliExpressOrderPage(myExport, driver, i))
+                {
+                    Console.WriteLine("Successfully Scraped Order Page {0}", i);
+                }
             }
+            myExport.ExportToFile(@"AliExpressOrders.csv");
         }
 
-        static bool ScrapeAliExpressOrderPage(IWebDriver driver, int curPage)
+        static bool ScrapeAliExpressOrderPage(CsvExport myExport, IWebDriver driver, int curPage)
         {
             // change page
             driver.FindElement(By.CssSelector("input[id$='gotoPageNum']")).SendKeys(curPage.ToString());
@@ -67,12 +69,12 @@ namespace AliOrderScraper
 
             // scrape
             Console.WriteLine("Reading Page {0} of {1} Pages", curPage, numPages);
-            ScrapeAliExpressOrderPageEntry(driver, curPage);
+            ScrapeAliExpressOrderPageEntry(myExport, driver, curPage);
 
             return true;
         }
 
-        static void ScrapeAliExpressOrderPageEntry(IWebDriver driver, int curPage)
+        static void ScrapeAliExpressOrderPageEntry(CsvExport myExport, IWebDriver driver, int curPage)
         {
             var orderEntries = driver.FindElements(By.XPath("//tbody[contains(@class, 'order-item-wraper ')]"));
             Console.WriteLine("Found {0} orders on page {1}", orderEntries.Count, curPage);
@@ -92,6 +94,13 @@ namespace AliOrderScraper
 
                 Console.WriteLine("Order no {0} was ordered on the {1}\n{2}, {3}, {4}", orderId, orderTime, storeName, storeUrl, orderAmount);
 
+                myExport.AddRow();
+                myExport["OrderId"] = orderId;
+                myExport["OrderTime"] = orderTime;
+                myExport["StoreName"] = storeName;
+                myExport["StoreUrl"] = storeUrl;
+                myExport["OrderAmount"] = orderAmount;
+
                 // for each order line
                 var orderLines = orderEntry.FindElements(By.XPath("tr[@class='order-body']"));
 
@@ -108,15 +117,15 @@ namespace AliOrderScraper
                     Console.WriteLine("{0}. [{1}] {2}\n{3} {4}", orderLineCount++, productId, productTitle, productProperty, productAmount);
                 }
 
-                // read buyer name before continuing?
-                string buyerName = GetAliExpressBuyerFromOrder(driver, orderId);
-                Console.WriteLine("{0}", buyerName);
+                // read order contact information (buyer)
+                GetAliExpressContactFromOrder(myExport, driver, orderId);
 
+                // new line
                 Console.WriteLine();
             }
         }
 
-        public static string GetAliExpressBuyerFromOrder(IWebDriver driver, string orderId)
+        static void GetAliExpressContactFromOrder(CsvExport myExport, IWebDriver driver, string orderId)
         {
             // https://trade.aliexpress.com/order_detail.htm?orderId=81495464493633
 
@@ -140,9 +149,22 @@ namespace AliOrderScraper
             driver.Navigate().GoToUrl(url);
 
             // find contact information
+            // example:
             // <li><label> Contact Name :</label><span i18entitle = 'Contact Name' class="i18ncopy">Reidar Krogsaeter</span>
             // find the span element with correct i18entitle contained within the li that contains a label whose string value contains the substring Contact Name
-            string name = driver.FindElement(By.XPath("//li[label[contains(., 'Contact Name')]]/span[@i18entitle='Contact Name']")).Text;
+            string contactName = driver.FindElement(By.XPath("//li[label[contains(., 'Contact Name')]]/span[@i18entitle='Contact Name']")).Text;
+            string contactAddress = driver.FindElement(By.XPath("//li[label[contains(., 'Address')]]/span[@i18entitle='Address']")).Text;
+            string contactZipCode = driver.FindElement(By.XPath("//li[label[contains(., 'Zip Code')]]/span[@i18entitle='Zip Code']")).Text;
+            // example 2:
+            // find the first following li element after the address and extract the span that has class i18ncopy
+            string contactAddress2 = driver.FindElement(By.XPath("//li[label[contains(., 'Address')]]/following-sibling::li[1]/span[@class='i18ncopy']")).Text;
+
+            Console.WriteLine("Contact {0} {1} {2} {3}", contactName, contactAddress, contactAddress2, contactZipCode);
+
+            myExport["ContactName"] = contactName;
+            myExport["ContactAddress"] = contactAddress;
+            myExport["contactAddress2"] = contactAddress2;
+            myExport["ContactZipCode"] = contactZipCode;
 
             // now lets close our new tab
             chromeDriver.ExecuteScript("window.close();");
@@ -152,8 +174,6 @@ namespace AliOrderScraper
 
             // and have our WebDriver focus on the main document in the page to send commands to 
             chromeDriver.SwitchTo().DefaultContent();
-
-            return name;
         }
 
         static Tuple<int, int> GetAliExpressOrderPageNumber(IWebDriver driver)

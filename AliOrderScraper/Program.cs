@@ -179,7 +179,7 @@ namespace AliOrderScraper
 
             myExport["ContactName"] = contactName;
             myExport["ContactAddress"] = contactAddress;
-            myExport["contactAddress2"] = contactAddress2;
+            myExport["ContactAddress2"] = contactAddress2;
             myExport["ContactZipCode"] = contactZipCode;
 
             // now lets close our new tab

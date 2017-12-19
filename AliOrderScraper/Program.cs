@@ -8,7 +8,7 @@ namespace AliOrderScraper
         {
             var currentDate = DateTime.Now.Date;
             var currentYear = currentDate.Year;
-            var from = new DateTime(currentYear, 12, 15);
+            var from = new DateTime(currentYear, 1, 1);
             var to = currentDate;
 
             AliExpress.ScrapeAliExpressOrders("", "AliExpressOrders", from);

@@ -16,6 +16,8 @@ namespace AliOrderScraper
     {
         public static void ScrapeAliExpressOrders(string path, string fileNamePrefix, DateTime from)
         {
+            Console.WriteLine("Scraping aliexpress orders from {0:dd.MM.yyyy} to {1:dd.MM.yyyy}.", from, DateTime.Now);
+
             string userDataDir = ConfigurationManager.AppSettings["UserDataDir"];
             string userDataArgument = string.Format("user-data-dir={0}", userDataDir);
 
@@ -23,6 +25,7 @@ namespace AliOrderScraper
             ChromeOptions options = new ChromeOptions();
             options.AddArguments(userDataArgument);
             options.AddArguments("--start-maximized");
+            options.AddArgument("--log-level=3");
             //options.AddArguments("--ignore-certificate-errors");
             //options.AddArguments("--ignore-ssl-errors");
             IWebDriver driver = new ChromeDriver(options);
@@ -63,6 +66,8 @@ namespace AliOrderScraper
             string exportFilePath = Path.Combine(path, string.Format("{0}-{1:yyyy-MM-dd}-{2:yyyy-MM-dd}.csv", fileNamePrefix, from, DateTime.Now));
             using (var sw = new StreamWriter(exportFilePath))
             {
+                //sw.WriteLine("sep=,");
+
                 var csvWriter = new CsvWriter(sw);
                 csvWriter.Configuration.Delimiter = ",";
                 csvWriter.Configuration.HasHeaderRecord = true;
@@ -117,7 +122,11 @@ namespace AliOrderScraper
                 aliExpressOrder.OrderTime = DateTime.ParseExact(orderTime, "HH:mm MMM. dd yyyy", CultureInfo.InvariantCulture);
 
                 // if we have reached a day before the from date, stop
-                if (from.AddDays(-1).Date == aliExpressOrder.OrderTime.Date) return false;
+                if (aliExpressOrder.OrderTime.Date <= from.AddDays(-1).Date)
+                {
+                    Console.WriteLine("Reached the from date. (Found order from {0:dd.MM.yyyy} <= {1:dd.MM.yyyy})", aliExpressOrder.OrderTime.Date, from.AddDays(-1).Date);
+                    return false;
+                }
 
                 aliExpressOrder.StoreName = storeName;
                 aliExpressOrder.StoreUrl = storeUrl;
